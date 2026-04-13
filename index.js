@@ -2,10 +2,11 @@ const TelegramBot = require("node-telegram-bot-api");
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 
-const TOKEN = process.env.TOKEN; // 
+// ================= CONFIG =================
+const TOKEN = process.env.TOKEN;
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// ===== DATABASE =====
+// ================= DATABASE =================
 let db = { userSenders: {} };
 
 if (fs.existsSync("data.json")) {
@@ -16,206 +17,289 @@ function saveDB() {
   fs.writeFileSync("data.json", JSON.stringify(db, null, 2));
 }
 
-// ===== STATE =====
+// ================= STATE =================
 let state = {};
-let activeSender = {};
 
-// ===== START =====
+// ================= VALIDASI =================
+function isValidGmail(email) {
+  return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(email);
+}
+
+// ================= CEK EMAIL =================
+async function checkEmail(email, password) {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: email, pass: password },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000
+    });
+
+    await Promise.race([
+      transporter.verify(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout")), 5000)
+      )
+    ]);
+
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// ================= START =================
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id,
-`🔥 SHUU FIX MERAH BOT
+  const chatId = msg.chat.id;
+
+  bot.sendMessage(
+    chatId,
+    `🔥 SHUU FIX MERAH BOT
 
 ⚡ Fix nomor WhatsApp otomatis
 🚀 Multi sender system
 📩 Kirim langsung ke support
 
-━━━━━━━━━━━━━━━
 Pilih menu di bawah:`,
-{
-  reply_markup: {
-    inline_keyboard: [
-      [
-        { text: "📤 Tambah Sender", callback_data: "add" },
-        { text: "📋 List Sender", callback_data: "list" }
-      ],
-      [
-        { text: "🗑 Hapus Sender", callback_data: "delete_menu" },
-        { text: "⚙️ Pilih Sender", callback_data: "select_menu" }
-      ],
-      [
-        { text: "📨 Fix Nomor", callback_data: "fix" }
-      ]
-    ]
-  }
-});
-});
-
-// ===== CALLBACK =====
-bot.on("callback_query", (q) => {
-  const id = q.message.chat.id;
-  const data = q.data;
-
-  if (data === "add") {
-    state[id] = { step: "email" };
-    return bot.sendMessage(id, "📧 Masukkan email Gmail:");
-  }
-
-  if (data === "list") {
-    const list = db.userSenders[id];
-    if (!list || list.length === 0) {
-      return bot.sendMessage(id, "⚠️ Belum ada sender");
+    {
+      reply_markup: {
+        keyboard: [
+          ["📤 Tambah Sender", "📋 List Sender"],
+          ["🗑 Hapus Sender", "⚙ Pilih Sender"],
+          ["📩 Fix Nomor"]
+        ],
+        resize_keyboard: true
+      }
     }
-
-    let text = "📋 Sender kamu:\n\n";
-    list.forEach((s,i)=> text += `${i+1}. ${s.email}\n`);
-    return bot.sendMessage(id, text);
-  }
-
-  if (data === "delete_menu") {
-    const list = db.userSenders[id];
-    if (!list || list.length === 0) return bot.sendMessage(id, "Kosong");
-
-    let btn = list.map((s,i)=>[
-      { text: `❌ ${s.email}`, callback_data: `delete_${i}` }
-    ]);
-
-    return bot.sendMessage(id, "Pilih yang mau dihapus:", {
-      reply_markup:{ inline_keyboard: btn }
-    });
-  }
-
-  if (data === "select_menu") {
-    const list = db.userSenders[id];
-    if (!list || list.length === 0) return bot.sendMessage(id, "Kosong");
-
-    let btn = list.map((s,i)=>[
-      { text: `${s.email}`, callback_data: `select_${i}` }
-    ]);
-
-    return bot.sendMessage(id, "Pilih sender:", {
-      reply_markup:{ inline_keyboard: btn }
-    });
-  }
-
-  if (data.startsWith("delete_")) {
-    const i = data.split("_")[1];
-    db.userSenders[id].splice(i,1);
-    saveDB();
-    return bot.sendMessage(id, "🗑 Sender dihapus");
-  }
-
-  if (data.startsWith("select_")) {
-    const i = data.split("_")[1];
-    activeSender[id] = i;
-    return bot.sendMessage(id, "✅ Sender dipilih");
-  }
-
-  if (data === "fix") {
-    state[id] = { step: "fix" };
-    return bot.sendMessage(id, "📱 Masukkan nomor (+62xxx):");
-  }
-
-  bot.answerCallbackQuery(q.id);
+  );
 });
 
-// ===== FLOW =====
+// ================= MENU =================
 bot.on("message", async (msg) => {
-  const id = msg.chat.id;
+  const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (!state[id]) return;
+  if (!state[chatId]) state[chatId] = {};
 
-  // EMAIL VALIDASI
-  if (state[id].step === "email") {
-    if (!text.endsWith("@gmail.com")) {
-      return bot.sendMessage(id, "❌ Hanya email @gmail.com yang diizinkan");
-    }
-
-    state[id].email = text;
-    state[id].step = "pass";
-    return bot.sendMessage(id, "🔑 Masukkan app password:");
+  // ================= TAMBAH SENDER =================
+  if (text === "📤 Tambah Sender") {
+    state[chatId] = { step: "email" };
+    return bot.sendMessage(chatId, "📧 Masukkan email Gmail:");
   }
 
-  // PASSWORD + VALIDASI SMTP
-  if (state[id].step === "pass") {
-    const email = state[id].email;
-    const pass = text;
-
-    const progress = await bot.sendMessage(id, "⏳ Mengecek email...");
-
-    try {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: email, pass: pass }
-      });
-
-      await transporter.verify();
-
-      if (!db.userSenders[id]) db.userSenders[id] = [];
-
-      db.userSenders[id].push({ email, pass });
-      saveDB();
-
-      delete state[id];
-
-      return bot.editMessageText(
-        "✅ Email valid & sender berhasil ditambahkan",
-        {
-          chat_id: id,
-          message_id: progress.message_id
-        }
-      );
-
-    } catch {
-      delete state[id];
-
-      return bot.editMessageText(
-        "❌ Email / App Password salah",
-        {
-          chat_id: id,
-          message_id: progress.message_id
-        }
-      );
+  // STEP EMAIL
+  if (state[chatId].step === "email") {
+    if (!isValidGmail(text)) {
+      return bot.sendMessage(chatId, "❌ Harus email @gmail.com");
     }
+
+    state[chatId].email = text;
+    state[chatId].step = "password";
+    return bot.sendMessage(chatId, "🔑 Masukkan App Password:");
   }
 
-  // FIX
-  if (state[id].step === "fix") {
-    const list = db.userSenders[id];
-    if (!list || list.length === 0) {
-      delete state[id];
-      return bot.sendMessage(id, "❌ Tambah sender dulu");
-    }
+  // STEP PASSWORD
+  if (state[chatId].step === "password") {
+    const email = state[chatId].email;
+    const password = text;
 
-    const sender = list[activeSender[id] || 0];
+    bot.sendMessage(chatId, "⏳ Mengecek email... (max 5 detik)");
 
-    const progress = await bot.sendMessage(id, "⏳ Mengirim...");
+    const valid = await checkEmail(email, password);
 
-    try {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: sender.email, pass: sender.pass }
-      });
-
-      await transporter.sendMail({
-        from: sender.email,
-        to: "support@support.whatsapp.com",
-        subject: "Appeal",
-        text: `Number: ${text}`
-      });
-
-      await bot.editMessageText(
-        `✅ Fix berhasil dikirim!\n📧 ${sender.email}`,
-        { chat_id: id, message_id: progress.message_id }
-      );
-
-    } catch {
-      await bot.editMessageText(
-        "❌ Gagal kirim",
-        { chat_id: id, message_id: progress.message_id }
+    if (!valid) {
+      state[chatId] = {};
+      return bot.sendMessage(
+        chatId,
+        "❌ Email / App Password salah atau timeout"
       );
     }
 
-    delete state[id];
+    if (!db.userSenders[chatId]) db.userSenders[chatId] = [];
+
+    db.userSenders[chatId].push({ email, password });
+    saveDB();
+
+    state[chatId] = {};
+
+    return bot.sendMessage(chatId, "✅ Sender berhasil ditambahkan");
   }
+
+  // ================= LIST =================
+  if (text === "📋 List Sender") {
+    const list = db.userSenders[chatId] || [];
+
+    if (list.length === 0) {
+      return bot.sendMessage(chatId, "❌ Belum ada sender");
+    }
+
+    let msgText = "📋 List Sender:\n\n";
+    list.forEach((s, i) => {
+      msgText += ${i + 1}. ${s.email}\n;
+    });
+
+    return bot.sendMessage(chatId, msgText);
+  }
+
+  // ================= HAPUS =================
+  if (text === "🗑 Hapus Sender") {
+    db.userSenders[chatId] = [];
+    saveDB();
+    return bot.sendMessage(chatId, "🗑 Semua sender dihapus");
+  }
+
+  // ================= DEFAULT =================
+});const TelegramBot = require("node-telegram-bot-api");
+const nodemailer = require("nodemailer");
+const fs = require("fs");
+
+// ================= CONFIG =================
+const TOKEN = process.env.TOKEN;
+const bot = new TelegramBot(TOKEN, { polling: true });
+
+// ================= DATABASE =================
+let db = { userSenders: {} };
+
+if (fs.existsSync("data.json")) {
+  db = JSON.parse(fs.readFileSync("data.json"));
+}
+
+function saveDB() {
+  fs.writeFileSync("data.json", JSON.stringify(db, null, 2));
+}
+
+// ================= STATE =================
+let state = {};
+
+// ================= VALIDASI =================
+function isValidGmail(email) {
+  return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(email);
+}
+
+// ================= CEK EMAIL =================
+async function checkEmail(email, password) {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: email, pass: password },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000
+    });
+
+    await Promise.race([
+      transporter.verify(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout")), 5000)
+      )
+    ]);
+
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// ================= START =================
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+
+  bot.sendMessage(
+    chatId,
+    `🔥 SHUU FIX MERAH BOT
+
+⚡ Fix nomor WhatsApp otomatis
+🚀 Multi sender system
+📩 Kirim langsung ke support
+
+Pilih menu di bawah:`,
+    {
+      reply_markup: {
+        keyboard: [
+          ["📤 Tambah Sender", "📋 List Sender"],
+          ["🗑 Hapus Sender", "⚙ Pilih Sender"],
+          ["📩 Fix Nomor"]
+        ],
+        resize_keyboard: true
+      }
+    }
+  );
+});
+
+// ================= MENU =================
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+
+  if (!state[chatId]) state[chatId] = {};
+
+  // ================= TAMBAH SENDER =================
+  if (text === "📤 Tambah Sender") {
+    state[chatId] = { step: "email" };
+    return bot.sendMessage(chatId, "📧 Masukkan email Gmail:");
+  }
+
+  // STEP EMAIL
+  if (state[chatId].step === "email") {
+    if (!isValidGmail(text)) {
+      return bot.sendMessage(chatId, "❌ Harus email @gmail.com");
+    }
+
+    state[chatId].email = text;
+    state[chatId].step = "password";
+    return bot.sendMessage(chatId, "🔑 Masukkan App Password:");
+  }
+
+  // STEP PASSWORD
+  if (state[chatId].step === "password") {
+    const email = state[chatId].email;
+    const password = text;
+
+    bot.sendMessage(chatId, "⏳ Mengecek email... (max 5 detik)");
+
+    const valid = await checkEmail(email, password);
+
+    if (!valid) {
+      state[chatId] = {};
+      return bot.sendMessage(
+        chatId,
+        "❌ Email / App Password salah atau timeout"
+      );
+    }
+
+    if (!db.userSenders[chatId]) db.userSenders[chatId] = [];
+
+    db.userSenders[chatId].push({ email, password });
+    saveDB();
+
+    state[chatId] = {};
+
+    return bot.sendMessage(chatId, "✅ Sender berhasil ditambahkan");
+  }
+
+  // ================= LIST =================
+  if (text === "📋 List Sender") {
+    const list = db.userSenders[chatId] || [];
+
+    if (list.length === 0) {
+      return bot.sendMessage(chatId, "❌ Belum ada sender");
+    }
+
+    let msgText = "📋 List Sender:\n\n";
+    list.forEach((s, i) => {
+      msgText += ${i + 1}. ${s.email}\n;
+    });
+
+    return bot.sendMessage(chatId, msgText);
+  }
+
+  // ================= HAPUS =================
+  if (text === "🗑 Hapus Sender") {
+    db.userSenders[chatId] = [];
+    saveDB();
+    return bot.sendMessage(chatId, "🗑 Semua sender dihapus");
+  }
+
+  // ================= DEFAULT =================
 });
