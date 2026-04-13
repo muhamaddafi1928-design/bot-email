@@ -38,8 +38,13 @@ function isValidGmail(email) {
 async function checkEmail(email, password) {
   try {
     const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: email, pass: password },
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user: email,
+        pass: password
+      },
       connectionTimeout: 15000,
       greetingTimeout: 15000,
       socketTimeout: 15000
@@ -48,13 +53,19 @@ async function checkEmail(email, password) {
     await Promise.race([
       transporter.verify(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), 15000)
+        setTimeout(() => reject(new Error("TIMEOUT_15S")), 15000)
       )
     ]);
 
-    return true;
+    return { success: true };
+
   } catch (err) {
-    return false;
+    console.log("❌ ERROR LOGIN:", err.message);
+
+    return {
+      success: false,
+      error: err.message
+    };
   }
 }
 
@@ -66,10 +77,10 @@ bot.onText(/\/start/, (msg) => {
 
   bot.sendMessage(
     chatId,
-    `🔥 SHUU FIX MERAH BOT
+    `🔥 BOT READY
 
-⚡ Multi sender system
-📩 Kirim langsung
+⚡ Multi sender
+📩 SMTP Gmail
 
 Pilih menu:`,
     {
@@ -84,7 +95,7 @@ Pilih menu:`,
   );
 });
 
-// ================= MAIN HANDLER =================
+// ================= MAIN =================
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -95,16 +106,16 @@ bot.on("message", async (msg) => {
 
   const userState = state[chatId];
 
-  // ================= CANCEL =================
+  // CANCEL
   if (text === "❌ Cancel") {
     state[chatId] = { step: null };
     return bot.sendMessage(chatId, "❌ Dibatalkan");
   }
 
-  // ================= MENU =================
+  // MENU
   if (text === "📤 Tambah Sender") {
     state[chatId] = { step: "email" };
-    return bot.sendMessage(chatId, "📧 Masukkan email Gmail:");
+    return bot.sendMessage(chatId, "📧 Masukkan Gmail:");
   }
 
   if (text === "📋 List Sender") {
@@ -128,10 +139,10 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "🗑 Semua sender dihapus");
   }
 
-  // ================= FLOW =================
+  // FLOW EMAIL
   if (userState.step === "email") {
     if (!isValidGmail(text)) {
-      return bot.sendMessage(chatId, "❌ Harus email @gmail.com");
+      return bot.sendMessage(chatId, "❌ Harus @gmail.com");
     }
 
     userState.email = text;
@@ -140,17 +151,30 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "🔑 Masukkan App Password:");
   }
 
+  // FLOW PASSWORD
   if (userState.step === "password") {
     const email = userState.email;
     const password = text;
 
-    bot.sendMessage(chatId, "⏳ Checking email (15 detik max)...");
+    bot.sendMessage(chatId, "⏳ Checking SMTP (15 detik)...");
 
-    const valid = await checkEmail(email, password);
+    const result = await checkEmail(email, password);
 
-    if (!valid) {
+    if (!result.success) {
       state[chatId] = { step: null };
-      return bot.sendMessage(chatId, "❌ Email / Password salah / timeout");
+
+      return bot.sendMessage(
+        chatId,
+        `❌ Gagal login
+
+Detail:
+${result.error}
+
+Cek:
+- App Password
+- Unlock captcha Google
+- Jangan pakai proxy`
+      );
     }
 
     if (!db.userSenders[chatId]) db.userSenders[chatId] = [];
@@ -162,5 +186,4 @@ bot.on("message", async (msg) => {
 
     return bot.sendMessage(chatId, "✅ Sender berhasil ditambahkan");
   }
-
 });
