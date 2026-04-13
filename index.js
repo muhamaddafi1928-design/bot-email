@@ -4,13 +4,22 @@ const fs = require("fs");
 
 // ================= CONFIG =================
 const TOKEN = process.env.TOKEN;
+if (!TOKEN) {
+  console.error("TOKEN belum diset!");
+  process.exit(1);
+}
+
 const bot = new TelegramBot(TOKEN, { polling: true });
 
 // ================= DATABASE =================
 let db = { userSenders: {} };
 
 if (fs.existsSync("data.json")) {
-  db = JSON.parse(fs.readFileSync("data.json"));
+  try {
+    db = JSON.parse(fs.readFileSync("data.json"));
+  } catch {
+    db = { userSenders: {} };
+  }
 }
 
 function saveDB() {
@@ -44,7 +53,7 @@ async function checkEmail(email, password) {
     ]);
 
     return true;
-  } catch (err) {
+  } catch {
     return false;
   }
 }
@@ -55,19 +64,12 @@ bot.onText(/\/start/, (msg) => {
 
   bot.sendMessage(
     chatId,
-    `🔥 SHUU FIX MERAH BOT
-
-⚡️ Fix nomor WhatsApp otomatis
-🚀 Multi sender system
-📩 Kirim langsung ke support
-
-Pilih menu di bawah:`,
+    "🔥 SHUU FIX MERAH BOT\n\nPilih menu di bawah:",
     {
       reply_markup: {
         keyboard: [
           ["📤 Tambah Sender", "📋 List Sender"],
-          ["🗑 Hapus Sender", "⚙️ Pilih Sender"],
-          ["📩 Fix Nomor"]
+          ["🗑 Hapus Sender"]
         ],
         resize_keyboard: true
       }
@@ -80,18 +82,19 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
+  if (!text) return;
   if (!state[chatId]) state[chatId] = {};
 
-  // ================= TAMBAH SENDER =================
+  // ================= TAMBAH =================
   if (text === "📤 Tambah Sender") {
     state[chatId] = { step: "email" };
     return bot.sendMessage(chatId, "📧 Masukkan email Gmail:");
   }
 
-  // STEP EMAIL
+  // EMAIL
   if (state[chatId].step === "email") {
     if (!isValidGmail(text)) {
-      return bot.sendMessage(chatId, "❌ Harus email @gmail.com");
+      return bot.sendMessage(chatId, "❌ Harus @gmail.com");
     }
 
     state[chatId].email = text;
@@ -99,21 +102,18 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "🔑 Masukkan App Password:");
   }
 
-  // STEP PASSWORD
+  // PASSWORD
   if (state[chatId].step === "password") {
     const email = state[chatId].email;
     const password = text;
 
-    bot.sendMessage(chatId, "⏳ Mengecek email... (max 10 detik)");
+    bot.sendMessage(chatId, "⏳ Cek email...");
 
     const valid = await checkEmail(email, password);
 
     if (!valid) {
       state[chatId] = {};
-      return bot.sendMessage(
-        chatId,
-        "❌ Email / App Password salah atau timeout"
-      );
+      return bot.sendMessage(chatId, "❌ Email / Password salah");
     }
 
     if (!db.userSenders[chatId]) db.userSenders[chatId] = [];
@@ -123,7 +123,7 @@ bot.on("message", async (msg) => {
 
     state[chatId] = {};
 
-    return bot.sendMessage(chatId, "✅ Sender berhasil ditambahkan");
+    return bot.sendMessage(chatId, "✅ Sender ditambahkan");
   }
 
   // ================= LIST =================
@@ -135,9 +135,10 @@ bot.on("message", async (msg) => {
     }
 
     let msgText = "📋 List Sender:\n\n";
-    list.forEach((s, i) => {
-      msgText += ${i + 1}. ${s.email}\n;
-    });
+
+    for (let i = 0; i < list.length; i++) {
+      msgText += (i + 1) + ". " + list[i].email + "\n";
+    }
 
     return bot.sendMessage(chatId, msgText);
   }
