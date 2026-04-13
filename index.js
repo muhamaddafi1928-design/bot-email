@@ -31,15 +31,15 @@ async function checkEmail(email, password) {
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: { user: email, pass: password },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000
     });
 
     await Promise.race([
       transporter.verify(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), 5000)
+        setTimeout(() => reject(new Error("Timeout")), 10000)
       )
     ]);
 
@@ -57,7 +57,7 @@ bot.onText(/\/start/, (msg) => {
     chatId,
     `🔥 SHUU FIX MERAH BOT
 
-⚡ Fix nomor WhatsApp otomatis
+⚡️ Fix nomor WhatsApp otomatis
 🚀 Multi sender system
 📩 Kirim langsung ke support
 
@@ -66,7 +66,7 @@ Pilih menu di bawah:`,
       reply_markup: {
         keyboard: [
           ["📤 Tambah Sender", "📋 List Sender"],
-          ["🗑 Hapus Sender", "⚙ Pilih Sender"],
+          ["🗑 Hapus Sender", "⚙️ Pilih Sender"],
           ["📩 Fix Nomor"]
         ],
         resize_keyboard: true
@@ -104,7 +104,7 @@ bot.on("message", async (msg) => {
     const email = state[chatId].email;
     const password = text;
 
-    bot.sendMessage(chatId, "⏳ Mengecek email... (max 5 detik)");
+    bot.sendMessage(chatId, "⏳ Mengecek email... (max 10 detik)");
 
     const valid = await checkEmail(email, password);
 
@@ -136,7 +136,7 @@ bot.on("message", async (msg) => {
 
     let msgText = "📋 List Sender:\n\n";
     list.forEach((s, i) => {
-      msgText += `${i + 1}. ${s.email}\n`;
+      msgText += ${i + 1}. ${s.email}\n;
     });
 
     return bot.sendMessage(chatId, msgText);
@@ -148,6 +148,4 @@ bot.on("message", async (msg) => {
     saveDB();
     return bot.sendMessage(chatId, "🗑 Semua sender dihapus");
   }
-
-  // ================= DEFAULT =================
 });
