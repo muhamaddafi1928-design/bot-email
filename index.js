@@ -2,7 +2,7 @@ const TelegramBot = require("node-telegram-bot-api");
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 
-const TOKEN = "8309692630:AAEqAqeSEoEo-MJ1_yPyLncfpFUDQ5dSKGQ"; // 
+const TOKEN = process.env.TOKEN; // 
 const bot = new TelegramBot(TOKEN, { polling: true });
 
 // ===== DATABASE =====
